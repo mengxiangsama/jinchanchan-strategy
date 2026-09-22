@@ -1,0 +1,4 @@
+interface:
+  display_name: "金铲铲全版本攻略"
+  short_description: "按赛季补丁检索金铲铲攻略，核对阵容装备与运营，支持复盘和镜像辅助"
+  default_prompt: "使用 $jinchanchan-strategy，先确认我的赛季、补丁和模式，再联网核对资料，给出阵容、装备、站位和运营建议。"
