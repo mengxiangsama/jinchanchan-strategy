@@ -17,7 +17,8 @@ def install(destination):
         raise FileNotFoundError("Skill source is incomplete")
     root.mkdir(parents=True, exist_ok=True)
     # copytree also refuses an intervening concurrent creation.
-    shutil.copytree(SOURCE, target, ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))
+    shutil.copytree(SOURCE, target, ignore=shutil.ignore_patterns(
+        "__pycache__", ".DS_Store", ".jinchanchan-cache"))
     return target
 
 
