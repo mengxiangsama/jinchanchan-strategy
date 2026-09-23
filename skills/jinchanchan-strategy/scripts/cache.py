@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import tempfile
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 IDENTITY_FIELDS = ("game", "region", "season", "patch", "mode", "edition")
 TTL_HOURS = {"rules": 168, "guide": 24, "stats": 6}
@@ -95,34 +96,47 @@ def read_json(path):
     return json.loads(data)
 
 
-def put(directory, card, now=None):
+def put(directory, card, now=None, replace_invalid=False):
     card = validate(card, now)
     directory = Path(directory)
     key = key_for(card["identity"], card["topic"])
     target = directory / f"{key}.json"
     if target.is_symlink():
         raise ValueError("Refusing a symlink evidence file")
+    invalid_existing = False
     if target.exists():
-        # Never silently replace a newer verification with an older one.
-        previous = validate(read_json(target), now)
-        if timestamp(previous["verified_at"]) > timestamp(card["verified_at"]):
-            raise ValueError("Refusing an older replacement")
+        try:
+            previous = validate(read_json(target), now)
+            if key_for(previous["identity"], previous["topic"]) != key:
+                raise ValueError("Evidence identity does not match its filename")
+        except (ValueError, TypeError, UnicodeError) as error:
+            if not replace_invalid:
+                raise ValueError("Existing cache is invalid; use --replace-invalid to preserve a backup") from error
+            invalid_existing = True
+        else:
+            # Never silently replace a newer verification with an older one.
+            if timestamp(previous["verified_at"]) > timestamp(card["verified_at"]):
+                raise ValueError("Refusing an older replacement")
     data = (json.dumps(card, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     if len(data) > MAX_BYTES:
         raise ValueError("Evidence card exceeds 256 KiB")
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = None
+    backup = None
     try:
         with tempfile.NamedTemporaryFile(dir=directory, prefix=".card-", delete=False) as handle:
             temporary = Path(handle.name)
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+        if invalid_existing:
+            backup = directory / f"{key}.invalid-{uuid4().hex}.bak"
+            target.rename(backup)
         os.replace(temporary, target)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
-    return target
+    return target, backup
 
 
 def get(directory, version, topic, scope="current", now=None):
@@ -178,6 +192,8 @@ def main():
     commands.add_parser("list", help="List identities/topics, not full strategy text")
     writer = commands.add_parser("put", help="Save a verified public evidence card")
     writer.add_argument("--file", required=True)
+    writer.add_argument("--replace-invalid", action="store_true",
+                        help="Move an invalid existing card to a .bak file before writing")
     reader = commands.add_parser("get", help="Exact version/topic lookup; never falls back to another patch")
     for field in IDENTITY_FIELDS:
         defaults = {"game": "金铲铲之战", "region": "国服"}
@@ -190,7 +206,8 @@ def main():
             raise ValueError("cache-dir must not be empty")
         directory = Path(args.cache_dir).expanduser()
         if args.command == "put":
-            result = {"saved": str(put(directory, read_json(args.file)))}
+            saved, backup = put(directory, read_json(args.file), replace_invalid=args.replace_invalid)
+            result = {"saved": str(saved), "backup": str(backup) if backup else None}
         elif args.command == "list":
             result = list_cards(directory)
         else:

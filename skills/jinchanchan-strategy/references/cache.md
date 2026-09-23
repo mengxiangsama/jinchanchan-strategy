@@ -80,6 +80,8 @@ python3 scripts/cache.py --cache-dir /path/to/workspace/.jinchanchan-cache get -
 python3 scripts/cache.py --cache-dir /path/to/workspace/.jinchanchan-cache put --file /path/to/evidence-card.json
 ```
 
+如果精确版本的旧缓存损坏，普通 `put` 会拒绝覆盖。完成新证据核验后，可显式加 `--replace-invalid`；命令会先把损坏文件移为同目录 `.bak` 备份，再写入新卡片，并在结果的 `backup` 字段给出备份路径。有效但较新的记录仍不能被旧记录覆盖，符号链接也不能被替换。
+
 脚本按“游戏 + 地区 + 赛季 + 补丁/热修 + 模式 + 发行批次 + 主题”生成散列文件名，精确匹配，原子替换同一卡片，拒绝旧核对时间覆盖新记录；不同补丁的历史记录保留。不下载页面、不启动定时任务。缓存目录已在项目 Git 忽略规则中排除，也不随安装复制；使用其他目录时仍需检查，避免公开未经审查的数据。
 
 ## 交付与速度验证

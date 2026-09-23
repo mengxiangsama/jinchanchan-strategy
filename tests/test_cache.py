@@ -39,8 +39,8 @@ class CacheTests(unittest.TestCase):
         self.directory = Path(self.temporary.name) / "cache with spaces"
         self.card = evidence()
 
-    def save(self, card=None):
-        return cache.put(self.directory, card or self.card, NOW)
+    def save(self, card=None, **kwargs):
+        return cache.put(self.directory, card or self.card, NOW, **kwargs)[0]
 
     def lookup(self, card=None, **kwargs):
         card = card or self.card
@@ -158,6 +158,20 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(cache.list_cards(self.directory, NOW)["entries"], [])
         self.assertEqual(len(cache.list_cards(self.directory, NOW)["invalid"]), 1)
 
+    def test_invalid_cache_requires_explicit_replacement_and_keeps_backup(self):
+        path = self.save()
+        path.write_bytes(b"damaged user cache")
+        with self.assertRaises(ValueError):
+            self.save()
+        self.assertEqual(path.read_bytes(), b"damaged user cache")
+
+        saved, backup = cache.put(self.directory, self.card, NOW, replace_invalid=True)
+        self.assertEqual(saved, path)
+        self.assertTrue(backup.is_file())
+        self.assertEqual(backup.read_bytes(), b"damaged user cache")
+        self.assertEqual(self.lookup()["status"], "hit")
+        self.assertEqual(cache.list_cards(self.directory, NOW)["invalid"], [])
+
     def test_older_replacement_refused_and_original_preserved(self):
         path = self.save()
         previous = path.read_bytes()
@@ -185,7 +199,7 @@ class CacheTests(unittest.TestCase):
         original = outside.read_bytes()
         self.assertEqual(self.lookup()["status"], "invalid")
         with self.assertRaises(ValueError):
-            self.save()
+            self.save(replace_invalid=True)
         self.assertEqual(outside.read_bytes(), original)
         self.assertTrue(path.is_symlink())
 
@@ -213,6 +227,16 @@ class CacheTests(unittest.TestCase):
             self.assertIn(expected, result)
             if expected == "status":
                 self.assertEqual(result["status"], "hit")
+
+        cached = self.directory / f"{cache.key_for(self.card['identity'], self.card['topic'])}.json"
+        cached.write_bytes(b"damaged cache")
+        recovery = subprocess.run(base + ["put", "--file", str(source), "--replace-invalid"],
+                                  cwd=self.temporary.name, capture_output=True, text=True,
+                                  encoding="utf-8")
+        self.assertEqual(recovery.returncode, 0, recovery.stderr)
+        result = json.loads(recovery.stdout)
+        self.assertEqual(Path(result["backup"]).read_bytes(), b"damaged cache")
+        self.assertEqual(self.lookup()["status"], "hit")
 
 
 if __name__ == "__main__":
